@@ -1,11 +1,10 @@
 import numpy as np
 import openmdao.api as om
-from mphys import Builder
 
 from funtofem import TransferScheme
 
 
-class MeldDispXfer(om.ExplicitComponent):
+class DispXferComponent(om.ExplicitComponent):
     """
     Component to perform displacement transfer using MELD
     """
@@ -17,8 +16,8 @@ class MeldDispXfer(om.ExplicitComponent):
         self.options.declare("aero_nnodes")
         self.options.declare("check_partials")
 
-        self.meld = None
-        self.initialized_meld = False
+        self.xfer = None
+        self.initialized_xfer = False
 
         self.struct_ndof = None
         self.struct_nnodes = None
@@ -26,7 +25,7 @@ class MeldDispXfer(om.ExplicitComponent):
         self.check_partials = False
 
     def setup(self):
-        self.meld = self.options["xfer_object"]
+        self.xfer = self.options["xfer_object"]
 
         self.struct_ndof = self.options["struct_ndof"]
         self.struct_nnodes = self.options["struct_nnodes"]
@@ -80,14 +79,14 @@ class MeldDispXfer(om.ExplicitComponent):
         for i in range(3):
             u_s[i::3] = inputs["u_struct"][i :: self.struct_ndof]
 
-        self.meld.setStructNodes(x_s0)
-        self.meld.setAeroNodes(x_a0)
+        self.xfer.setStructNodes(x_s0)
+        self.xfer.setAeroNodes(x_a0)
 
-        if not self.initialized_meld:
-            self.meld.initialize()
-            self.initialized_meld = True
+        if not self.initialized_xfer:
+            self.xfer.initialize()
+            self.initialized_xfer = True
 
-        self.meld.transferDisps(u_s, u_a)
+        self.xfer.transferDisps(u_s, u_a)
 
         outputs["u_aero"] = u_a
 
@@ -102,13 +101,13 @@ class MeldDispXfer(om.ExplicitComponent):
         if self.check_partials:
             x_s0 = np.array(inputs["x_struct0"], dtype=TransferScheme.dtype)
             x_a0 = np.array(inputs["x_aero0"], dtype=TransferScheme.dtype)
-            self.meld.setStructNodes(x_s0)
-            self.meld.setAeroNodes(x_a0)
+            self.xfer.setStructNodes(x_s0)
+            self.xfer.setAeroNodes(x_a0)
         u_s = np.zeros(self.struct_nnodes * 3, dtype=TransferScheme.dtype)
         for i in range(3):
             u_s[i::3] = inputs["u_struct"][i :: self.struct_ndof]
         u_a = np.zeros(self.aero_nnodes * 3, dtype=TransferScheme.dtype)
-        self.meld.transferDisps(u_s, u_a)
+        self.xfer.transferDisps(u_s, u_a)
 
         if mode == "fwd":
             if "u_aero" in d_outputs:
@@ -117,7 +116,7 @@ class MeldDispXfer(om.ExplicitComponent):
                     for i in range(3):
                         d_in[i::3] = d_inputs["u_struct"][i :: self.struct_ndof]
                     prod = np.zeros(self.aero_nnodes * 3, dtype=TransferScheme.dtype)
-                    self.meld.applydDduS(d_in, prod)
+                    self.xfer.applydDduS(d_in, prod)
                     d_outputs["u_aero"] -= np.array(prod, dtype=float)
 
                 if "x_aero0" in d_inputs:
@@ -125,7 +124,7 @@ class MeldDispXfer(om.ExplicitComponent):
                         pass
                     else:
                         raise ValueError(
-                            "MELD forward mode requested but not implemented"
+                            "XFER forward mode requested but not implemented"
                         )
 
                 if "x_struct0" in d_inputs:
@@ -133,7 +132,7 @@ class MeldDispXfer(om.ExplicitComponent):
                         pass
                     else:
                         raise ValueError(
-                            "MELD forward mode requested but not implemented"
+                            "XFER forward mode requested but not implemented"
                         )
 
         if mode == "rev":
@@ -142,7 +141,7 @@ class MeldDispXfer(om.ExplicitComponent):
                 if "u_struct" in d_inputs:
                     # du_a/du_s^T * psi = - dD/du_s^T psi
                     prod = np.zeros(self.struct_nnodes * 3, dtype=TransferScheme.dtype)
-                    self.meld.applydDduSTrans(du_a, prod)
+                    self.xfer.applydDduSTrans(du_a, prod)
                     for i in range(3):
                         d_inputs["u_struct"][i :: self.struct_ndof] -= np.array(
                             prod[i::3], dtype=np.float64
@@ -153,16 +152,16 @@ class MeldDispXfer(om.ExplicitComponent):
                     prod = np.zeros(
                         d_inputs["x_aero0"].size, dtype=TransferScheme.dtype
                     )
-                    self.meld.applydDdxA0(du_a, prod)
+                    self.xfer.applydDdxA0(du_a, prod)
                     d_inputs["x_aero0"] -= np.array(prod, dtype=float)
 
                 if "x_struct0" in d_inputs:
                     prod = np.zeros(self.struct_nnodes * 3, dtype=TransferScheme.dtype)
-                    self.meld.applydDdxS0(du_a, prod)
+                    self.xfer.applydDdxS0(du_a, prod)
                     d_inputs["x_struct0"] -= np.array(prod, dtype=float)
 
 
-class MeldLoadXfer(om.ExplicitComponent):
+class LoadXferComponent(om.ExplicitComponent):
     """
     Component to perform load transfers using MELD
     """
@@ -174,7 +173,7 @@ class MeldLoadXfer(om.ExplicitComponent):
         self.options.declare("aero_nnodes")
         self.options.declare("check_partials")
 
-        self.meld = None
+        self.xfer = None
         self.initialized_meld = False
 
         self.struct_ndof = None
@@ -184,7 +183,7 @@ class MeldLoadXfer(om.ExplicitComponent):
 
     def setup(self):
         # get the transfer scheme object
-        self.meld = self.options["xfer_object"]
+        self.xfer = self.options["xfer_object"]
 
         self.struct_ndof = self.options["struct_ndof"]
         self.struct_nnodes = self.options["struct_nnodes"]
@@ -242,8 +241,8 @@ class MeldLoadXfer(om.ExplicitComponent):
         if self.check_partials:
             x_s0 = np.array(inputs["x_struct0"], dtype=TransferScheme.dtype)
             x_a0 = np.array(inputs["x_aero0"], dtype=TransferScheme.dtype)
-            self.meld.setStructNodes(x_s0)
-            self.meld.setAeroNodes(x_a0)
+            self.xfer.setStructNodes(x_s0)
+            self.xfer.setAeroNodes(x_a0)
         f_a = np.array(inputs["f_aero"], dtype=TransferScheme.dtype)
         f_s = np.zeros(self.struct_nnodes * 3, dtype=TransferScheme.dtype)
 
@@ -251,9 +250,9 @@ class MeldLoadXfer(om.ExplicitComponent):
         for i in range(3):
             u_s[i::3] = inputs["u_struct"][i :: self.struct_ndof]
         u_a = np.zeros(inputs["f_aero"].size, dtype=TransferScheme.dtype)
-        self.meld.transferDisps(u_s, u_a)
+        self.xfer.transferDisps(u_s, u_a)
 
-        self.meld.transferLoads(f_a, f_s)
+        self.xfer.transferLoads(f_a, f_s)
 
         outputs["f_struct"][:] = 0.0
         for i in range(3):
@@ -270,8 +269,8 @@ class MeldLoadXfer(om.ExplicitComponent):
         if self.check_partials:
             x_s0 = np.array(inputs["x_struct0"], dtype=TransferScheme.dtype)
             x_a0 = np.array(inputs["x_aero0"], dtype=TransferScheme.dtype)
-            self.meld.setStructNodes(x_s0)
-            self.meld.setAeroNodes(x_a0)
+            self.xfer.setStructNodes(x_s0)
+            self.xfer.setAeroNodes(x_a0)
         f_a = np.array(inputs["f_aero"], dtype=TransferScheme.dtype)
         f_s = np.zeros(self.struct_nnodes * 3, dtype=TransferScheme.dtype)
 
@@ -279,8 +278,8 @@ class MeldLoadXfer(om.ExplicitComponent):
         for i in range(3):
             u_s[i::3] = inputs["u_struct"][i :: self.struct_ndof]
         u_a = np.zeros(inputs["f_aero"].size, dtype=TransferScheme.dtype)
-        self.meld.transferDisps(u_s, u_a)
-        self.meld.transferLoads(f_a, f_s)
+        self.xfer.transferDisps(u_s, u_a)
+        self.xfer.transferLoads(f_a, f_s)
 
         if mode == "fwd":
             if "f_struct" in d_outputs:
@@ -289,7 +288,7 @@ class MeldLoadXfer(om.ExplicitComponent):
                     for i in range(3):
                         d_in[i::3] = d_inputs["u_struct"][i :: self.struct_ndof]
                     prod = np.zeros(self.struct_nnodes * 3, dtype=TransferScheme.dtype)
-                    self.meld.applydLduS(d_in, prod)
+                    self.xfer.applydLduS(d_in, prod)
                     for i in range(3):
                         d_outputs["f_struct"][i :: self.struct_ndof] -= np.array(
                             prod[i::3], dtype=float
@@ -299,7 +298,7 @@ class MeldLoadXfer(om.ExplicitComponent):
                     # df_s/df_a psi = - dL/df_a * psi = -dD/du_s^T * psi
                     prod = np.zeros(self.struct_nnodes * 3, dtype=TransferScheme.dtype)
                     df_a = np.array(d_inputs["f_aero"], dtype=TransferScheme.dtype)
-                    self.meld.applydDduSTrans(df_a, prod)
+                    self.xfer.applydDduSTrans(df_a, prod)
                     for i in range(3):
                         d_outputs["f_struct"][i :: self.struct_ndof] -= np.array(
                             prod[i::3], dtype=float
@@ -326,7 +325,7 @@ class MeldLoadXfer(om.ExplicitComponent):
                 if "u_struct" in d_inputs:
                     d_in = np.zeros(self.struct_nnodes * 3, dtype=TransferScheme.dtype)
                     # df_s/du_s^T * psi = - dL/du_s^T * psi
-                    self.meld.applydLduSTrans(d_out, d_in)
+                    self.xfer.applydLduSTrans(d_out, d_in)
 
                     for i in range(3):
                         d_inputs["u_struct"][i :: self.struct_ndof] -= np.array(
@@ -336,63 +335,17 @@ class MeldLoadXfer(om.ExplicitComponent):
                 if "f_aero" in d_inputs:
                     # df_s/df_a^T psi = - dL/df_a^T * psi = -dD/du_s * psi
                     prod = np.zeros(self.aero_nnodes * 3, dtype=TransferScheme.dtype)
-                    self.meld.applydDduS(d_out, prod)
+                    self.xfer.applydDduS(d_out, prod)
                     d_inputs["f_aero"] -= np.array(prod, dtype=float)
 
                 if "x_aero0" in d_inputs:
                     # df_s/dx_a0^T * psi = - psi^T * dL/dx_a0 in F2F terminology
                     prod = np.zeros(self.aero_nnodes * 3, dtype=TransferScheme.dtype)
-                    self.meld.applydLdxA0(d_out, prod)
+                    self.xfer.applydLdxA0(d_out, prod)
                     d_inputs["x_aero0"] -= np.array(prod, dtype=float)
 
                 if "x_struct0" in d_inputs:
                     # df_s/dx_s0^T * psi = - psi^T * dL/dx_s0 in F2F terminology
                     prod = np.zeros(self.struct_nnodes * 3, dtype=TransferScheme.dtype)
-                    self.meld.applydLdxS0(d_out, prod)
+                    self.xfer.applydLdxS0(d_out, prod)
                     d_inputs["x_struct0"] -= np.array(prod, dtype=float)
-
-
-class MeldBuilder(Builder):
-    def __init__(
-        self,
-        aero_builder,
-        struct_builder,
-        isym=-1,
-        n=200,
-        beta=0.5,
-        check_partials=False,
-    ):
-        self.aero_builder = aero_builder
-        self.struct_builder = struct_builder
-        self.isym = isym
-        self.n = n
-        self.beta = beta
-        self.check_partials = check_partials
-
-    def initialize(self, comm):
-        self.nnodes_aero = self.aero_builder.get_number_of_nodes()
-        self.nnodes_struct = self.struct_builder.get_number_of_nodes()
-        self.ndof_struct = self.struct_builder.get_ndof()
-
-        self.meld = TransferScheme.pyMELD(
-            comm, comm, 0, comm, 0, self.isym, self.n, self.beta
-        )
-
-    def get_coupling_group_subsystem(self, scenario_name=None):
-        disp_xfer = MeldDispXfer(
-            xfer_object=self.meld,
-            struct_ndof=self.ndof_struct,
-            struct_nnodes=self.nnodes_struct,
-            aero_nnodes=self.nnodes_aero,
-            check_partials=self.check_partials,
-        )
-
-        load_xfer = MeldLoadXfer(
-            xfer_object=self.meld,
-            struct_ndof=self.ndof_struct,
-            struct_nnodes=self.nnodes_struct,
-            aero_nnodes=self.nnodes_aero,
-            check_partials=self.check_partials,
-        )
-
-        return disp_xfer, load_xfer

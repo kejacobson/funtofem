@@ -3,13 +3,13 @@ import openmdao.api as om
 from funtofem import TransferScheme
 from mphys import Builder
 
-""" builder and components to wrap meld thermal to transfert temperature and
+""" Components to wrap meld thermal to transfer temperature and
 heat transfer rate between the convective and conductive analysis."""
 
 
-class MELDThermal_temp_xfer(om.ExplicitComponent):
+class TemperatureXferComponent(om.ExplicitComponent):
     """
-    Component to perform displacement transfer using MELD
+    Component to perform temperature transfer using MELD
     """
 
     def initialize(self):
@@ -101,9 +101,9 @@ class MELDThermal_temp_xfer(om.ExplicitComponent):
         outputs["T_convect"] = temp_conv
 
 
-class MELDThermal_heat_xfer_rate_xfer(om.ExplicitComponent):
+class HeatRateXferComponent(om.ExplicitComponent):
     """
-    Component to perform load transfers using MELD
+    Component to perform transfers of heat rate using MELD
     """
 
     def initialize(self):
@@ -184,94 +184,3 @@ class MELDThermal_heat_xfer_rate_xfer(om.ExplicitComponent):
 
         self.meldThermal.transferFlux(heat_xfer_conv, heat_xfer_cond)
         outputs["q_conduct"] = heat_xfer_cond
-
-
-class MELDThermal_builder(Builder):
-    def __init__(self, options, conv_builder, cond_builder, check_partials=False):
-        super(MELDThermal_builder, self).__init__(options)
-        self.check_partials = check_partials
-        # TODO we can move the conv and cond builder to init_xfer_object call so that user does not need to worry about this
-        self.conv_builder = conv_builder
-        self.cond_builder = cond_builder
-
-    # api level method for all builders
-    def init_xfer_object(self, comm):
-        # create the transfer
-        self.xfer_object = TransferScheme.pyMELDThermal(
-            comm,
-            comm,
-            0,
-            comm,
-            0,
-            self.options["isym"],
-            self.options["n"],
-            self.options["beta"],
-        )
-
-        # TODO also do the necessary calls to the cond and conv builders to fully initialize MELD
-        # for now, just save the counts
-        self.cond_ndof = self.cond_builder.get_ndof()
-        tacs = self.cond_builder.get_solver()
-        get_surface = self.cond_builder.options["get_surface"]
-
-        surface_nodes, mapping = get_surface(tacs)
-        # get mapping of flow edge
-        self.mapping = mapping
-        self.cond_nnodes = len(mapping)
-
-        self.conv_nnodes = self.conv_builder.get_nnodes(groupName="allIsothermalWalls")
-
-    # api level method for all builders
-    def get_xfer_object(self):
-        return self.xfer_object
-
-    # api level method for all builders
-    def get_element(self):
-
-        temp_xfer = MELDThermal_temp_xfer(
-            xfer_object=self.xfer_object,
-            cond_ndof=self.cond_ndof,
-            cond_nnodes=self.cond_nnodes,
-            conv_nnodes=self.conv_nnodes,
-            check_partials=self.check_partials,
-        )
-
-        heat_xfer_xfer = MELDThermal_heat_xfer_rate_xfer(
-            xfer_object=self.xfer_object,
-            cond_ndof=self.cond_ndof,
-            cond_nnodes=self.cond_nnodes,
-            conv_nnodes=self.conv_nnodes,
-            check_partials=self.check_partials,
-        )
-
-        return temp_xfer, heat_xfer_xfer
-
-    def build_object(self, comm):
-        self.init_xfer_object(comm)
-
-    def get_object(self):
-        return self.xfer_object()
-
-    def get_component(self):
-
-        temp_xfer = MELDThermal_temp_xfer(
-            xfer_object=self.xfer_object,
-            cond_ndof=self.cond_ndof,
-            cond_nnodes=self.cond_nnodes,
-            conv_nnodes=self.conv_nnodes,
-            check_partials=self.check_partials,
-            mapping=self.mapping,
-        )
-
-        yield "_temps", temp_xfer
-
-        heat_xfer_xfer = MELDThermal_heat_xfer_rate_xfer(
-            xfer_object=self.xfer_object,
-            cond_ndof=self.cond_ndof,
-            cond_nnodes=self.cond_nnodes,
-            conv_nnodes=self.conv_nnodes,
-            check_partials=self.check_partials,
-            mapping=self.mapping,
-        )
-
-        yield "_heat_rate", heat_xfer_xfer

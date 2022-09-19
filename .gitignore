@@ -17,3 +17,4 @@ fake_interface*
 .vscode/settings.json
 docs/.DS_Store
 *.DS_Store
+*egg-info
