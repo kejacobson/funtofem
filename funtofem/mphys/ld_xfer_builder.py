@@ -11,11 +11,11 @@ class TransferSchemeBuilder(Builder):
         self.check_partials = False
 
     def initialize(self, comm):
-        raise NotImplementedError("TransferSchemeBuilder called directly")
+        raise NotImplementedError("TransferSchemeBuilder initialize called directly")
 
     def get_coupling_group_subsystem(self, scenario_name=None):
         disp_xfer = DispXferComponent(
-            xfer_object=self.xfer,
+            xfer=self.xfer,
             struct_ndof=self.ndof_struct,
             struct_nnodes=self.nnodes_struct,
             aero_nnodes=self.nnodes_aero,
@@ -23,7 +23,7 @@ class TransferSchemeBuilder(Builder):
         )
 
         load_xfer = LoadXferComponent(
-            xfer_object=self.xfer,
+            xfer=self.xfer,
             struct_ndof=self.ndof_struct,
             struct_nnodes=self.nnodes_struct,
             aero_nnodes=self.nnodes_aero,

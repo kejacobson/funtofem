@@ -11,8 +11,13 @@ class ModeTransfer(om.ExplicitComponent):
         self.options.declare("ndof_struct")
         self.options.declare("nnodes_aero")
         self.options.declare("xfer")
+        self.options.declare(
+            "use_ref_coordinates",
+            types=bool,
+            desc="Use a separate x_aero_ref, x_struct_ref for transfer scheme initialization",
+        )
 
-        self.first_pass = True
+        self.initialized_xfer = True
 
     def setup(self):
         # self.set_check_partial_options(wrt='*',method='cs',directional=True)
@@ -33,6 +38,22 @@ class ModeTransfer(om.ExplicitComponent):
             "x_aero0", shape_by_conn=True, distributed=True, tags=["mphys_coordinates"]
         )
 
+        if self.options["use_ref_coordinates"]:
+            self.add_input(
+                "x_struct_ref",
+                shape_by_conn=True,
+                distributed=True,
+                desc="initial structural node coordinates",
+                tags=["mphys_coordinates"],
+            )
+            self.add_input(
+                "x_aero_ref",
+                shape_by_conn=True,
+                distributed=True,
+                desc="initial aero surface node coordinates",
+                tags=["mphys_coordinates"],
+            )
+
         nmodes = self.options["nmodes"]
         self.nnodes_aero = self.options["nnodes_aero"]
         self.nnodes_struct = self.options["nnodes_struct"]
@@ -46,6 +67,19 @@ class ModeTransfer(om.ExplicitComponent):
             tags=["mphys_coupling"],
         )
 
+    def _initialize_xfer(self, inputs):
+        if self.options["use_ref_coodinates"]:
+            x_s0 = np.array(inputs["x_struct_ref"], dtype=TransferScheme.dtype)
+            x_a0 = np.array(inputs["x_aero_ref"], dtype=TransferScheme.dtype)
+        else:
+            x_s0 = np.array(inputs["x_struct0"], dtype=TransferScheme.dtype)
+            x_a0 = np.array(inputs["x_aero0"], dtype=TransferScheme.dtype)
+
+        self.xfer.setStructNodes(x_s0)
+        self.xfer.setAeroNodes(x_a0)
+        self.xfer.initialize()
+        self.initialized_xfer = True
+
     def compute(self, inputs, outputs):
         xfer = self.options["xfer"]
         nmodes = self.options["nmodes"]
@@ -55,12 +89,11 @@ class ModeTransfer(om.ExplicitComponent):
         aero_modes = np.zeros((aero_X.size, nmodes), dtype=TransferScheme.dtype)
         struct_modes = inputs["mode_shapes_struct"].reshape((-1, nmodes))
 
+        if self.initialized_xfer:
+            self._initialize_xfer(inputs)
+
         xfer.setAeroNodes(aero_X)
         xfer.setStructNodes(struct_X)
-
-        if self.first_pass:
-            xfer.initialize()
-            self.first_pass = False
 
         struct_mode = np.zeros(self.nnodes_struct * 3, dtype=TransferScheme.dtype)
         for mode in range(nmodes):

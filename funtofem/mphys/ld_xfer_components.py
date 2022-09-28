@@ -10,11 +10,16 @@ class DispXferComponent(om.ExplicitComponent):
     """
 
     def initialize(self):
-        self.options.declare("xfer_object", recordable=False)
+        self.options.declare("xfer", recordable=False)
         self.options.declare("struct_ndof")
         self.options.declare("struct_nnodes")
         self.options.declare("aero_nnodes")
         self.options.declare("check_partials")
+        self.options.declare(
+            "use_ref_coordinates",
+            types=bool,
+            desc="Use a separate x_aero_ref, x_struct_ref for transfer scheme initialization",
+        )
 
         self.xfer = None
         self.initialized_xfer = False
@@ -25,7 +30,7 @@ class DispXferComponent(om.ExplicitComponent):
         self.check_partials = False
 
     def setup(self):
-        self.xfer = self.options["xfer_object"]
+        self.xfer = self.options["xfer"]
 
         self.struct_ndof = self.options["struct_ndof"]
         self.struct_nnodes = self.options["struct_nnodes"]
@@ -57,6 +62,22 @@ class DispXferComponent(om.ExplicitComponent):
             tags=["mphys_coupling"],
         )
 
+        if self.options["use_ref_coordinates"]:
+            self.add_input(
+                "x_struct_ref",
+                shape_by_conn=True,
+                distributed=True,
+                desc="initial structural node coordinates",
+                tags=["mphys_coordinates"],
+            )
+            self.add_input(
+                "x_aero_ref",
+                shape_by_conn=True,
+                distributed=True,
+                desc="initial aero surface node coordinates",
+                tags=["mphys_coordinates"],
+            )
+
         # outputs
         self.add_output(
             "u_aero",
@@ -70,6 +91,19 @@ class DispXferComponent(om.ExplicitComponent):
         # partials
         # self.declare_partials('u_aero',['x_struct0','x_aero0','u_struct'])
 
+    def _initialize_xfer(self, inputs):
+        if self.options["use_ref_coodinates"]:
+            x_s0 = np.array(inputs["x_struct_ref"], dtype=TransferScheme.dtype)
+            x_a0 = np.array(inputs["x_aero_ref"], dtype=TransferScheme.dtype)
+        else:
+            x_s0 = np.array(inputs["x_struct0"], dtype=TransferScheme.dtype)
+            x_a0 = np.array(inputs["x_aero0"], dtype=TransferScheme.dtype)
+
+        self.xfer.setStructNodes(x_s0)
+        self.xfer.setAeroNodes(x_a0)
+        self.xfer.initialize()
+        self.initialized_xfer = True
+
     def compute(self, inputs, outputs):
         x_s0 = np.array(inputs["x_struct0"], dtype=TransferScheme.dtype)
         x_a0 = np.array(inputs["x_aero0"], dtype=TransferScheme.dtype)
@@ -79,12 +113,11 @@ class DispXferComponent(om.ExplicitComponent):
         for i in range(3):
             u_s[i::3] = inputs["u_struct"][i :: self.struct_ndof]
 
+        if not self.initialized_xfer:
+            self._initialize_xfer(inputs)
+
         self.xfer.setStructNodes(x_s0)
         self.xfer.setAeroNodes(x_a0)
-
-        if not self.initialized_xfer:
-            self.xfer.initialize()
-            self.initialized_xfer = True
 
         self.xfer.transferDisps(u_s, u_a)
 
@@ -167,14 +200,13 @@ class LoadXferComponent(om.ExplicitComponent):
     """
 
     def initialize(self):
-        self.options.declare("xfer_object", recordable=False)
+        self.options.declare("xfer", recordable=False)
         self.options.declare("struct_ndof")
         self.options.declare("struct_nnodes")
         self.options.declare("aero_nnodes")
         self.options.declare("check_partials")
 
         self.xfer = None
-        self.initialized_meld = False
 
         self.struct_ndof = None
         self.struct_nnodes = None
@@ -183,7 +215,7 @@ class LoadXferComponent(om.ExplicitComponent):
 
     def setup(self):
         # get the transfer scheme object
-        self.xfer = self.options["xfer_object"]
+        self.xfer = self.options["xfer"]
 
         self.struct_ndof = self.options["struct_ndof"]
         self.struct_nnodes = self.options["struct_nnodes"]
