@@ -26,6 +26,7 @@ class MeldDispXfer(om.ExplicitComponent):
         self.options.declare("aero_nnodes")
         self.options.declare("check_partials")
         self.options.declare("bodies", recordable=False)
+        self.options.declare("use_reference_coords", default=False)
 
         self.struct_ndof = None
         self.struct_nnodes = None
@@ -56,6 +57,21 @@ class MeldDispXfer(om.ExplicitComponent):
             desc="initial aero surface node coordinates",
             tags=["mphys_coordinates"],
         )
+        if self.options["use_reference_coords"]:
+            self.add_input(
+                "x_struct_ref",
+                shape_by_conn=True,
+                distributed=True,
+                desc="reference structural node coordinates",
+                tags=["mphys_coordinates"],
+            )
+            self.add_input(
+                "x_aero0_ref",
+                shape_by_conn=True,
+                distributed=True,
+                desc="reference aero surface node coordinates",
+                tags=["mphys_coordinates"],
+            )
         self.add_input(
             U_STRUCT,
             shape_by_conn=True,
@@ -79,13 +95,6 @@ class MeldDispXfer(om.ExplicitComponent):
 
     def compute(self, inputs, outputs):
         for body in self.bodies:
-            x_s0 = np.array(
-                inputs[X_STRUCT0][body.struct_coord_indices],
-                dtype=TransferScheme.dtype,
-            )
-            x_a0 = np.array(
-                inputs[X_AERO0][body.aero_coord_indices], dtype=TransferScheme.dtype
-            )
             u_a = np.array(
                 outputs[U_AERO][body.aero_coord_indices], dtype=TransferScheme.dtype
             )
@@ -96,12 +105,34 @@ class MeldDispXfer(om.ExplicitComponent):
                     body.struct_dof_indices[i :: self.struct_ndof]
                 ]
 
-            body.meld.setStructNodes(x_s0)
-            body.meld.setAeroNodes(x_a0)
+            if self.options["use_reference_coords"]:
+                x_s0 = np.array(inputs["x_struct_ref"][body.struct_coord_indices], dtype=TransferScheme.dtype)
+                x_a0 = np.array(inputs["x_aero0_ref"][body.aero_coord_indices], dtype=TransferScheme.dtype)
+            else:
+                x_s0 = np.array(
+                    inputs[X_STRUCT0][body.struct_coord_indices],
+                    dtype=TransferScheme.dtype,
+                )
+                x_a0 = np.array(
+                    inputs[X_AERO0][body.aero_coord_indices], dtype=TransferScheme.dtype
+                )
 
             if not body.initialized_meld:
+                body.meld.setStructNodes(x_s0)
+                body.meld.setAeroNodes(x_a0)
+
                 body.meld.initialize()
                 body.initialized_meld = True
+
+            x_s0 = np.array(
+                inputs[X_STRUCT0][body.struct_coord_indices],
+                dtype=TransferScheme.dtype,
+            )
+            x_a0 = np.array(
+                inputs[X_AERO0][body.aero_coord_indices], dtype=TransferScheme.dtype
+            )
+            body.meld.setStructNodes(x_s0)
+            body.meld.setAeroNodes(x_a0)
 
             body.meld.transferDisps(u_s, u_a)
 
@@ -555,6 +586,7 @@ class MeldBuilder(Builder):
         beta=0.5,
         check_partials=False,
         linearized=False,
+        use_reference_coordinates=False,
         body_tags=None,
     ):
         self.aero_builder = aero_builder
@@ -564,6 +596,7 @@ class MeldBuilder(Builder):
         self.beta = beta
         self.check_partials = check_partials
         self.linearized = linearized
+        self.use_reference_coordinates = use_reference_coordinates
         self.body_tags = body_tags if body_tags is not None else []
 
         if len(self.body_tags) > 0:  # make into lists, potentially for different bodies
@@ -640,6 +673,7 @@ class MeldBuilder(Builder):
             struct_nnodes=self.nnodes_struct,
             aero_nnodes=self.nnodes_aero,
             check_partials=self.check_partials,
+            use_reference_coords=self.use_reference_coordinates,
             bodies=self.bodies,
         )
 
